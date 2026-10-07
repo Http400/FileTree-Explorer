@@ -1,24 +1,43 @@
 import { useMemo, useState } from 'react'
 import { Navigate, Route, Routes, useNavigate } from 'react-router'
+import Alert from '@mui/material/Alert'
 import { addItemIds } from './components/FileTree/addItemIds'
 import { FileTreeInput } from './components/FileTreeInput/FileTreeInput'
 import type { FileTreeRoot } from './components/FileTreeInput/parseFileTreeJson'
 import { TreeExplorer } from './components/TreeExplorer/TreeExplorer'
+import { loadFileTree, saveFileTree } from './utils/fileTreeStorage'
 import './App.css'
 
+type TreeState = {
+  root: FileTreeRoot | null
+  storageWarning: string | null
+}
+
 function App() {
-  const [root, setRoot] = useState<FileTreeRoot | null>(null)
+  const [{ root, storageWarning }, setTreeState] = useState<TreeState>(() => {
+    const result = loadFileTree()
+    return result.success
+      ? { root: result.root, storageWarning: null }
+      : { root: null, storageWarning: result.error }
+  })
   const items = useMemo(() => root ? addItemIds([root]) : null, [root])
   const navigate = useNavigate()
 
   function handleValid(acceptedRoot: FileTreeRoot) {
-    setRoot(acceptedRoot)
+    const result = saveFileTree(acceptedRoot)
+    setTreeState({
+      root: acceptedRoot,
+      storageWarning: result.success ? null : result.error,
+    })
     navigate('/tree')
   }
 
   return (
     <main className="app">
       <h1>FileTree Explorer</h1>
+      {storageWarning && (
+        <Alert severity="warning" sx={{ mb: 3 }}>{storageWarning}</Alert>
+      )}
       <Routes>
         <Route
           path="/"

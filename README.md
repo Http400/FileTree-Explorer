@@ -37,12 +37,27 @@ An unknown node or malformed node URL keeps the tree visible and displays an
 error with **Back to root folder**. Selecting a valid tree item also recovers.
 
 Use **Enter another JSON** to return to a blank input and submit a different
-tree. The latest validated tree is held only in React memory: it survives
-Back/Forward navigation while the app is mounted, but not a page refresh or a new
-tab. Opening or refreshing `/tree` or a node-detail URL without that state
-redirects to `/`. Paths outside the explorer also redirect to `/`. URLs contain
-only the selected node ID, not a saved tree; no tree is stored in browser storage
-or on a server. Submitting a new tree resets selection and expansion to its root.
+tree without erasing the saved tree. The latest validated tree, including its
+metadata, is saved in this browser's `localStorage` under
+`filetree-explorer:root:v1`. Refreshing `/tree` or a node-detail URL restores it,
+with selection determined by the URL. Expansion choices are not saved; the root
+and selected node's ancestors are expanded on load. A new valid submission
+replaces the saved tree and resets selection and expansion to its root.
+Unfinished input, uploaded-but-unvalidated text, and JSON formatting are not saved.
+
+Visiting `/` still shows a blank input, even when a saved tree exists. Without a
+usable saved tree, opening `/tree` or a node-detail URL redirects to `/`.
+Paths outside the explorer also redirect to `/`. Invalid saved data or blocked
+storage displays a warning and allows fresh input without deleting the stored
+value. If saving fails (for example, storage is full), the new tree remains
+usable in memory, but a warning explains that refreshing may restore an older
+tree or lose the new tree. A later successful submission clears the warning.
+
+Saved data is scoped to this site's origin and browser profile; a new tab on the
+same origin can load it, but already-open tabs do not synchronize live. Clearing
+site data removes it, and private-browsing storage may be temporary. URLs contain
+only the selected node ID, not the tree, so sharing a URL does not share its data.
+Nothing is saved on a server.
 
 Production hosting must serve `index.html` as the fallback for client-side
 routes such as `/tree` and `/tree/root%2Fsrc`; otherwise a direct visit may
@@ -70,6 +85,8 @@ for JSON validation and uploads. **Components/FileDetails** and
 **Components/FolderDetails** cover metadata, prop updates, empty folders, and
 child-link navigation. **Components/TreeExplorer** exercises the integrated
 layout, routed selection, history, keyboard navigation, expansion, and errors.
+**App/Persistence** covers saving and restoring validated JSON, deep links,
+replacement, blank input, and storage-failure warnings and recovery.
 
 `npm run build-storybook` compiles the stories but does not execute their
 interaction checks; open each story in a browser to run its `play` function.
@@ -169,7 +186,8 @@ Both props are optional: `initialValue` supplies the initial text only, and
 Typing or uploading does not validate or call the callback. No IDs are added to
 the returned data, and additional metadata is preserved. The component does not
 navigate, render a tree, or persist the draft. `App` connects its `onValid`
-callback to the in-memory tree state and route navigation.
+callback to tree state, localStorage persistence, and route navigation, and
+restores saved data using the same JSON validation on startup.
 
 Validation requires one folder root with nonblank Unicode names and node types
 `file` or `folder`. Files require a nonnegative safe-integer `size` in bytes and
