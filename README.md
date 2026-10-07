@@ -45,7 +45,9 @@ npm run build-storybook
 
 Open the **Components** stories to explore individual components. The
 **Components/FileTreeInput** stories include self-running interaction checks
-for JSON validation and uploads.
+for JSON validation and uploads. **Components/FileDetails** and
+**Components/FolderDetails** cover metadata, prop updates, empty folders, and
+child-link navigation.
 
 `npm run build-storybook` compiles the stories but does not execute their
 interaction checks; open each story in a browser to run its `play` function.
@@ -163,6 +165,68 @@ subject to browser memory, responsiveness, and recursion limits.
 See **Components/FileTreeInput** in Storybook for the input states and
 self-running interaction checks, including uploads and read failures.
 
+## File and folder details
+
+`FileDetails` and `FolderDetails` are standalone, prop-driven MUI components.
+They are not yet displayed on `/tree`: the caller owns selection, node lookup,
+and destination routes. Neither component modifies the tree or stores selection.
+
+`FileDetails` requires a `file` (the file variant of `FileTreeNode`) and a
+readable `fullPath` including the root name. Files enriched by `addItemIds`
+are also accepted. The component displays Name, Size, and Full path without
+decoding or constructing the supplied path.
+
+```tsx
+import { FileDetails } from './src/components/FileDetails/FileDetails'
+
+export function SelectedFile() {
+  return (
+    <FileDetails
+      file={{ name: 'index.ts', type: 'file', size: 1536 }}
+      fullPath="root/src/index.ts"
+    />
+  )
+}
+```
+
+`FolderDetails` requires a `folder` (the folder variant of `FileTreeItem`,
+including IDs on its children) and `getChildTo(child): string`. It displays Name,
+Direct children, Total size, and a list of direct children in input order.
+Links show the original child names and distinguish files from folders.
+Omitted or empty children display `0`, `0 B`, and **This folder is empty.**
+
+Folder details must be rendered inside a React Router context, such as the app's
+existing `BrowserRouter`. File details do not need a router. `getChildTo` owns
+URL construction; the component forwards its result to a React Router `Link`
+without encoding or rewriting it. The caller must implement matching routes.
+
+```tsx
+import { FolderDetails, type FolderDetailsProps } from './src/components/FolderDetails/FolderDetails'
+
+// Render within a router and supply destinations handled by your application.
+export function SelectedFolder({ folder, getChildTo }: FolderDetailsProps) {
+  return <FolderDetails folder={folder} getChildTo={getChildTo} />
+}
+```
+
+Both components expect validated filesystem data and export their prop types.
+They share 1024-based size formatting: `0 B`, `1023 B`, `1 KB`, `1.5 KB`,
+`1 MB`. KB/MB values are rounded to at most two decimals without trailing zeros.
+The unit is chosen before rounding (so 1,048,575 bytes displays as `1024 KB`),
+and MB remains the largest unit (1 GB displays as `1024 MB`).
+
+Folder totals include all descendant files, not just direct children. The
+iterative helper avoids recursive traversal limits and uses `bigint` internally
+to preserve exact byte totals even when their sum exceeds the safe-integer
+range; input data and file sizes remain unchanged. Totals are recalculated from
+current props in linear time, with no global index or cache. The shared
+`formatBytes` helper rejects negative or non-safe-integer numeric sizes rather
+than displaying fallback values.
+
+Explore the details stories for typical, empty, long-name/path, special-character,
+large-size, and changing-selection examples. Folder stories use an isolated
+`MemoryRouter` and story-only URLs; those URLs do not add application routes.
+
 ## Tests
 
 Run the Vitest unit tests (Storybook interaction checks run separately in the
@@ -182,4 +246,10 @@ Run the JSON parser and ID helper tests together:
 
 ```bash
 npm test -- src/components/FileTreeInput/parseFileTreeJson.test.ts src/components/FileTree/addItemIds.test.ts
+```
+
+Run the size formatter and folder-total tests together:
+
+```bash
+npm test -- src/utils/formatBytes.test.ts src/components/FolderDetails/getFolderSize.test.ts
 ```
