@@ -5,6 +5,8 @@ import { FileDetails } from '../FileDetails/FileDetails'
 import { FileTree } from '../FileTree/FileTree'
 import type { FileTreeItem } from '../FileTree/addItemIds'
 import { FolderDetails } from '../FolderDetails/FolderDetails'
+import { TreeSearch } from '../TreeSearch/TreeSearch'
+import { searchTree } from '../TreeSearch/searchTree'
 import { findTreeNode, getNodeUrl, resolveNodePath } from './treeNavigation'
 
 export type TreeExplorerProps = {
@@ -17,6 +19,8 @@ export function TreeExplorer({ items }: TreeExplorerProps) {
   const location = useLocation()
   const navigate = useNavigate()
   const rootId = items[0].id
+  const query = new URLSearchParams(location.search).get('q') ?? ''
+  const results = useMemo(() => searchTree(items, query), [items, query])
   const resolvedPath = useMemo(
     () => resolveNodePath(location.pathname, rootId),
     [location.pathname, rootId],
@@ -27,18 +31,33 @@ export function TreeExplorer({ items }: TreeExplorerProps) {
   )
   const [expansion, setExpansion] = useState(() => ({
     items,
-    locationKey: location.key,
+    pathname: location.pathname,
     expandedIds: [...new Set([rootId, ...(selected?.ancestorIds ?? [])])],
   }))
 
   let expandedIds = expansion.expandedIds
-  if (expansion.items !== items || expansion.locationKey !== location.key) {
-    // Reveal ancestors once per navigation, but allow users to collapse them afterward.
+  if (expansion.items !== items || expansion.pathname !== location.pathname) {
+    // Reveal ancestors on node navigation, but not when only the search changes.
     expandedIds = [...new Set([
       ...(expansion.items === items ? expandedIds : [rootId]),
       ...(selected?.ancestorIds ?? []),
     ])]
-    setExpansion({ items, locationKey: location.key, expandedIds })
+    setExpansion({ items, pathname: location.pathname, expandedIds })
+  }
+
+  function getItemUrl(itemId: string) {
+    return getNodeUrl(itemId, rootId) + location.search
+  }
+
+  function handleQueryChange(value: string) {
+    const params = new URLSearchParams(location.search)
+    if (value) params.set('q', value)
+    else params.delete('q')
+    navigate({
+      pathname: location.pathname,
+      search: params.toString(),
+      hash: location.hash,
+    }, { replace: true })
   }
 
   return (
@@ -63,11 +82,11 @@ export function TreeExplorer({ items }: TreeExplorerProps) {
             }}
             onSelectedItemsChange={(_, itemId) => {
               if (itemId !== null && itemId !== selected?.item.id) {
-                navigate(getNodeUrl(itemId, rootId))
+                navigate(getItemUrl(itemId))
               }
             }}
             onExpandedItemsChange={(_, itemIds) => {
-              setExpansion({ items, locationKey: location.key, expandedIds: itemIds })
+              setExpansion({ items, pathname: location.pathname, expandedIds: itemIds })
             }}
             aria-label="Project files"
           />
@@ -79,15 +98,23 @@ export function TreeExplorer({ items }: TreeExplorerProps) {
             ) : (
               <FolderDetails
                 folder={selected.item}
-                getChildTo={(child) => getNodeUrl(child.id, rootId)}
+                getChildTo={(child) => getItemUrl(child.id)}
               />
             )
           ) : (
             <Alert severity="error">
               <p>{resolvedPath.success ? 'File or folder not found.' : resolvedPath.error}</p>
-              <Link className="app-link" to="/tree">Back to root folder</Link>
+              <Link className="app-link" to={getItemUrl(rootId)}>Back to root folder</Link>
             </Alert>
           )}
+        </div>
+        <div className="app-search">
+          <TreeSearch
+            query={query}
+            onQueryChange={handleQueryChange}
+            results={results}
+            getResultTo={(item) => getItemUrl(item.id)}
+          />
         </div>
       </div>
       <Link className="app-link" to="/">Enter another JSON</Link>

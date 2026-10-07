@@ -13,16 +13,18 @@ npm run dev
 
 At `/`, paste a file-tree JSON object or use **Upload JSON file**, then click
 **Validate JSON**. Valid input opens `/tree`, with the root folder selected and
-expanded and its details displayed beside the tree. On small screens, details
-appear below the tree. Select a file or folder label to see its details; use the
-expansion icon to expand or collapse without changing selection.
+expanded and its details displayed beside the tree. Wide screens show the tree,
+details, and search side by side. Search appears below details at intermediate
+widths, and all panels stack on small screens. Select a file or folder label to
+see its details; use the expansion icon to expand or collapse without changing
+selection.
 Keyboard users can navigate with arrow keys and select with Space. Enter toggles
 expandable folders or selects a leaf, following MUI's tree keyboard behavior.
 Invalid input stays on `/` with an error; typing or uploading alone does not
 navigate.
 
-Tree selections and folder child links share the same node URLs. Back/Forward
-updates the details and selection, revealing the selected node's ancestors while
+Tree selections, folder child links, and search results share the same node URLs.
+Back/Forward updates the details and selection, revealing the selected node's ancestors while
 preserving other expansion choices. Expanding or collapsing alone does not add
 history entries. File details show the original readable path from the root.
 
@@ -56,12 +58,46 @@ tree or lose the new tree. A later successful submission clears the warning.
 Saved data is scoped to this site's origin and browser profile; a new tab on the
 same origin can load it, but already-open tabs do not synchronize live. Clearing
 site data removes it, and private-browsing storage may be temporary. URLs contain
-only the selected node ID, not the tree, so sharing a URL does not share its data.
-Nothing is saved on a server.
+the selected node ID and search query, not the tree, so sharing a URL does not
+share its data. Nothing is saved on a server.
 
 Production hosting must serve `index.html` as the fallback for client-side
 routes such as `/tree` and `/tree/root%2Fsrc`; otherwise a direct visit may
 produce a server-side 404.
+
+## Name search
+
+Use **Search files and folders** in the search panel to find names anywhere in
+the loaded tree, including collapsed folders and the root. Matching is a live,
+case-insensitive substring search on names only, not full paths or file contents.
+Leading/trailing query whitespace is ignored for matching; internal spaces and
+punctuation remain literal. All matches appear in tree order, with no result cap.
+An empty/whitespace-only query shows a prompt, and a query with no matches shows
+**No files or folders found.**
+
+Each clickable result displays a file or folder icon and its name, followed by
+its full readable path on a separate line:
+
+```text
+[file icon] Button.tsx
+            root/src/components/Button.tsx
+```
+
+Selecting a result opens its details and selects it in the tree. Typing does not
+automatically select a result, filter the tree, or reopen collapsed folders.
+
+Search text is stored in the URL's `q` query parameter, for example
+`/tree?q=Button` or `/tree/root%2Fsrc%2Fcomponents%2FButton.tsx?q=Button`.
+Refreshing restores the search alongside the tree saved in localStorage.
+The URL is the only source of search state; query edits do not write browser
+storage. A shared URL still requires the matching tree in the recipient's browser.
+
+Typing updates the URL immediately by replacing the current history entry,
+so Back does not step through individual keystrokes. Result links, tree selection,
+folder-child links, and **Back to root folder** retain the search. Back/Forward
+restores the node and query from each visited URL. Clearing the input removes
+`q` without removing unrelated query parameters. **Enter another JSON** and
+submitting a different tree start without a search.
 
 ## Storybook
 
@@ -85,8 +121,11 @@ for JSON validation and uploads. **Components/FileDetails** and
 **Components/FolderDetails** cover metadata, prop updates, empty folders, and
 child-link navigation. **Components/TreeExplorer** exercises the integrated
 layout, routed selection, history, keyboard navigation, expansion, and errors.
+It also covers live search, result links and paths, query history, special names,
+and search changes preserving selection and expansion.
 **App/Persistence** covers saving and restoring validated JSON, deep links,
-replacement, blank input, and storage-failure warnings and recovery.
+replacement, blank input, storage-failure warnings and recovery, and restoring
+search on a saved tree.
 
 `npm run build-storybook` compiles the stories but does not execute their
 interaction checks; open each story in a browser to run its `play` function.

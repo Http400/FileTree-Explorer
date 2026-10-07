@@ -27,7 +27,11 @@ let failWrites = false
 
 function CurrentLocation() {
   const location = useLocation()
-  return <output aria-label="Current location" hidden>{location.pathname}</output>
+  return (
+    <output aria-label="Current location" hidden>
+      {location.pathname}{location.search}{location.hash}
+    </output>
+  )
 }
 
 function AppHarness({ initialPath }: { initialPath: string }) {
@@ -276,5 +280,42 @@ export const SaveFailureAndRecovery: Story = {
     await userEvent.click(canvas.getByRole('button', { name: 'Remount app' }))
     await expect(canvas.getByRole('region', { name: 'Folder details' }))
       .toHaveTextContent('replacement')
+  },
+}
+
+export const RestoreSearchAndReplaceTree: Story = {
+  parameters: { initialPath: `${nestedPath}?q=index`, initialJson: json },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    let search = within(canvas.getByRole('region', { name: 'Search' }))
+    await expect(search.getByRole('searchbox')).toHaveValue('index')
+    await expect(search.getByRole('link', { name: 'File: index.ts, root/a/b/index.ts' }))
+      .toHaveAttribute('href', `${nestedPath}?q=index`)
+    await expect(canvas.getByRole('region', { name: 'File details' }))
+      .toHaveTextContent('root/a/b/index.ts')
+
+    await userEvent.clear(search.getByRole('searchbox'))
+    await userEvent.type(search.getByRole('searchbox'), 'a/b')
+    await expect(saveAttempts).not.toHaveBeenCalled()
+    await expect(window.localStorage.getItem(FILE_TREE_STORAGE_KEY)).toBe(json)
+    await userEvent.click(canvas.getByRole('button', { name: 'Remount app' }))
+    search = within(canvas.getByRole('region', { name: 'Search' }))
+    await expect(search.getByRole('searchbox')).toHaveValue('a/b')
+    await expect(search.getByRole('link', { name: 'Folder: a/b, root/a/b' })).toBeVisible()
+    await expect(canvas.getByLabelText('Current location')).toHaveTextContent(`${nestedPath}?q=a%2Fb`)
+    await expect(canvas.getByRole('region', { name: 'File details' }))
+      .toHaveTextContent('root/a/b/index.ts')
+    await expect(saveAttempts).not.toHaveBeenCalled()
+
+    await userEvent.click(canvas.getByRole('link', { name: 'Enter another JSON' }))
+    await expect(canvas.getByLabelText('Current location')).toHaveTextContent(/^\/$/)
+    await enterJson(canvas, JSON.stringify(replacement))
+    await userEvent.click(canvas.getByRole('button', { name: 'Validate JSON' }))
+    await expect(canvas.getByLabelText('Current location')).toHaveTextContent(/^\/tree$/)
+    await expect(canvas.getByRole('searchbox')).toHaveValue('')
+    await expect(within(canvas.getByRole('region', { name: 'Search' })).queryByRole('list'))
+      .not.toBeInTheDocument()
+    await expect(window.localStorage.getItem(FILE_TREE_STORAGE_KEY))
+      .toBe(JSON.stringify(replacement))
   },
 }

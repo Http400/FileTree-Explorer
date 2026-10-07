@@ -49,9 +49,11 @@ function NavigationControls() {
       <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
         <Button onClick={() => navigate(-1)}>Back</Button>
         <Button onClick={() => navigate(1)}>Forward</Button>
-        <Link to="/tree">Root folder</Link>
+        <Link to={`/tree${location.search}`}>Root folder</Link>
       </Stack>
-      <output aria-label="Current location" hidden>{location.pathname}</output>
+      <output aria-label="Current location" hidden>
+        {location.pathname}{location.search}{location.hash}
+      </output>
     </>
   )
 }
@@ -74,7 +76,7 @@ const meta = {
   component: TreeExplorer,
   decorators: [
     (Story, context) => (
-      <MemoryRouter initialEntries={[context.parameters.initialPath ?? '/tree']}>
+      <MemoryRouter initialEntries={context.parameters.initialEntries ?? [context.parameters.initialPath ?? '/tree']}>
         <div className="app">
           <NavigationControls />
           <Routes>
@@ -322,5 +324,224 @@ export const ReplacingTree: Story = {
     await expect(canvas.getByRole('alert')).toHaveTextContent('File or folder not found.')
     await userEvent.click(canvas.getByRole('link', { name: 'Back to root folder' }))
     await expect(canvas.getByRole('link', { name: 'replacement.txt' })).toBeVisible()
+  },
+}
+
+export const LiveNameSearch: Story = {
+  parameters: { initialPath: '/tree?view=keep&q=button&q=src#results' },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const search = within(canvas.getByRole('region', { name: 'Search' }))
+    const input = search.getByRole('searchbox', { name: 'Search files and folders' })
+    const tree = within(canvas.getByRole('tree'))
+    await expect(input).toHaveValue('button')
+    const file = search.getByRole('link', {
+      name: 'File: Button.tsx, root/src/components/Button.tsx',
+    })
+    await expect(within(file).getByText('Button.tsx')).toBeVisible()
+    await expect(within(file).getByText('root/src/components/Button.tsx')).toBeVisible()
+    await expect(file.querySelector('[aria-hidden="true"]')).toHaveTextContent('\u{1F4C4}')
+    await expect(search.getByRole('status')).toHaveTextContent('1 result')
+    await expect(treeItem(tree, 'src')).toHaveAttribute('aria-expanded', 'false')
+    await expect(treeItem(tree, 'root')).toHaveAttribute('aria-selected', 'true')
+
+    await userEvent.clear(input)
+    await expect(canvas.getByLabelText('Current location')).toHaveTextContent(/^\/tree\?view=keep#results$/)
+    await expect(search.queryByRole('list')).not.toBeInTheDocument()
+    await expect(search.getByRole('status')).toHaveTextContent('Enter a name')
+    await userEvent.type(input, '  SRC ')
+    await expect(input).toHaveFocus()
+    await expect(input).toHaveValue('  SRC ')
+    const folder = search.getByRole('link', { name: 'Folder: src, root/src' })
+    await expect(folder.querySelector('[aria-hidden="true"]')).toHaveTextContent('\u{1F4C1}')
+    await expect(canvas.getByLabelText('Current location'))
+      .toHaveTextContent('/tree?view=keep&q=++SRC+#results')
+    await expect(treeItem(tree, 'root')).toHaveAttribute('aria-selected', 'true')
+
+    await userEvent.clear(input)
+    await userEvent.type(input, 'not-found')
+    await expect(search.getByRole('status')).toHaveTextContent('No files or folders found.')
+    await expect(search.queryByRole('list')).not.toBeInTheDocument()
+    await userEvent.clear(input)
+    await userEvent.type(input, '   ')
+    await expect(input).toHaveValue('   ')
+    await expect(search.getByRole('status')).toHaveTextContent('Enter a name')
+    await expect(search.queryByRole('list')).not.toBeInTheDocument()
+    await userEvent.clear(input)
+    await userEvent.type(input, 'root')
+    await userEvent.click(search.getByRole('link', { name: 'Folder: root, root' }))
+    await expect(treeItem(tree, 'root')).toHaveAttribute('aria-selected', 'true')
+    await expect(canvas.getByLabelText('Current location')).toHaveTextContent(/^\/tree\?view=keep&q=root$/)
+  },
+}
+
+export const SearchNavigationAndHistory: Story = {
+  parameters: { initialPath: '/tree?q=src' },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const search = within(canvas.getByRole('region', { name: 'Search' }))
+    const input = search.getByRole('searchbox')
+    await userEvent.click(search.getByRole('link', { name: 'Folder: src, root/src' }))
+    await expect(canvas.getByLabelText('Current location')).toHaveTextContent(/^\/tree\/root%2Fsrc\?q=src$/)
+    await expect(treeItem(canvas, 'src')).toHaveAttribute('aria-selected', 'true')
+    const folder = within(canvas.getByRole('region', { name: 'Folder details' }))
+    await userEvent.click(folder.getByRole('link', { name: 'index.ts' }))
+    await expect(canvas.getByLabelText('Current location'))
+      .toHaveTextContent(/^\/tree\/root%2Fsrc%2Findex\.ts\?q=src$/)
+    await userEvent.clear(input)
+    await userEvent.type(input, 'index')
+    await expect(search.getAllByRole('link').map((link) => link.textContent))
+      .toEqual([
+        '\u{1F4C4}index.tsroot/src/index.ts',
+        '\u{1F4C4}index.test.tsroot/tests/index.test.ts',
+      ])
+
+    await userEvent.click(canvas.getByRole('button', { name: 'Back' }))
+    await expect(input).toHaveValue('src')
+    await expect(canvas.getByLabelText('Current location')).toHaveTextContent(/^\/tree\/root%2Fsrc\?q=src$/)
+    await userEvent.click(canvas.getByRole('button', { name: 'Forward' }))
+    await expect(input).toHaveValue('index')
+    await expect(canvas.getByLabelText('Current location'))
+      .toHaveTextContent(/^\/tree\/root%2Fsrc%2Findex\.ts\?q=index$/)
+
+    await userEvent.click(within(canvas.getByRole('tree')).getByText('tests'))
+    await expect(canvas.getByLabelText('Current location')).toHaveTextContent(/^\/tree\/root%2Ftests\?q=index$/)
+    await userEvent.click(search.getByRole('link', {
+      name: 'File: index.test.ts, root/tests/index.test.ts',
+    }))
+    await expect(treeItem(canvas, 'tests')).toHaveAttribute('aria-expanded', 'true')
+    await expect(treeItem(canvas, 'index.test.ts')).toHaveAttribute('aria-selected', 'true')
+    await expect(canvas.getByRole('region', { name: 'File details' }))
+      .toHaveTextContent('root/tests/index.test.ts')
+    await expect(input).toHaveValue('index')
+  },
+}
+
+export const SearchPreservesExpansion: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(canvas.getByRole('link', { name: 'src' }))
+    await userEvent.click(canvas.getByRole('link', { name: 'components' }))
+    await userEvent.click(canvas.getByRole('link', { name: 'Button.tsx' }))
+    const tree = within(canvas.getByRole('tree'))
+    await userEvent.click(expansionIcon(treeItem(tree, 'root')))
+    const input = canvas.getByRole('searchbox')
+    await userEvent.type(input, 'button')
+    await expect(input).toHaveFocus()
+    await expect(treeItem(tree, 'root')).toHaveAttribute('aria-expanded', 'false')
+    await expect(canvas.getByRole('region', { name: 'File details' }))
+      .toHaveTextContent('root/src/components/Button.tsx')
+
+    await userEvent.click(canvas.getByRole('button', { name: 'Back' }))
+    await expect(input).toHaveValue('')
+    await expect(canvas.getByLabelText('Current location'))
+      .toHaveTextContent(/^\/tree\/root%2Fsrc%2Fcomponents$/)
+    await expect(treeItem(tree, 'root')).toHaveAttribute('aria-expanded', 'true')
+    await userEvent.click(canvas.getByRole('button', { name: 'Forward' }))
+    await expect(input).toHaveValue('button')
+    await expect(treeItem(tree, 'Button.tsx')).toHaveAttribute('aria-selected', 'true')
+    await userEvent.click(expansionIcon(treeItem(tree, 'root')))
+    await userEvent.clear(input)
+    await expect(treeItem(tree, 'root')).toHaveAttribute('aria-expanded', 'false')
+    await expect(canvas.getByLabelText('Current location'))
+      .toHaveTextContent(/^\/tree\/root%2Fsrc%2Fcomponents%2FButton\.tsx$/)
+  },
+}
+
+export const QueryOnlyHistory: Story = {
+  parameters: {
+    initialEntries: [
+      '/tree/root%2Fsrc%2Fcomponents%2FButton.tsx?q=button',
+      '/tree/root%2Fsrc%2Fcomponents%2FButton.tsx?q=components',
+    ],
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(expansionIcon(treeItem(canvas, 'root')))
+    await userEvent.click(canvas.getByRole('button', { name: 'Back' }))
+    await expect(canvas.getByRole('searchbox')).toHaveValue('button')
+    await expect(treeItem(canvas, 'root')).toHaveAttribute('aria-expanded', 'false')
+    await userEvent.click(canvas.getByRole('button', { name: 'Forward' }))
+    await expect(canvas.getByRole('searchbox')).toHaveValue('components')
+    await expect(treeItem(canvas, 'root')).toHaveAttribute('aria-expanded', 'false')
+  },
+}
+
+export const SearchRecovery: Story = {
+  parameters: { initialPath: '/tree/root%2Fmissing?q=button' },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const search = within(canvas.getByRole('region', { name: 'Search' }))
+    await expect(canvas.getByRole('alert')).toHaveTextContent('File or folder not found.')
+    await userEvent.click(search.getByRole('link', {
+      name: 'File: Button.tsx, root/src/components/Button.tsx',
+    }))
+    await expect(canvas.queryByRole('alert')).not.toBeInTheDocument()
+    await expect(treeItem(canvas, 'Button.tsx')).toHaveAttribute('aria-selected', 'true')
+    await userEvent.click(canvas.getByRole('button', { name: 'Back' }))
+    await userEvent.click(canvas.getByRole('link', { name: 'Back to root folder' }))
+    await expect(canvas.getByLabelText('Current location')).toHaveTextContent(/^\/tree\?q=button$/)
+    await expect(canvas.getByRole('searchbox')).toHaveValue('button')
+    await expect(treeItem(canvas, 'root')).toHaveAttribute('aria-selected', 'true')
+  },
+}
+
+export const SearchSpecialNames: Story = {
+  args: {
+    items: addItemIds([{
+      name: 'root',
+      type: 'folder',
+      children: ['a/b', 'a%2Fb', 'a+b &?#% caf\u00e9'].map((name) => ({
+        name, type: 'file', size: 1,
+      })),
+    }]),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const search = within(canvas.getByRole('region', { name: 'Search' }))
+    const input = search.getByRole('searchbox')
+    for (const name of ['a/b', 'a%2Fb', 'a+b &?#% caf\u00e9']) {
+      await userEvent.clear(input)
+      await userEvent.click(input)
+      await userEvent.paste(name)
+      const result = search.getByRole('link', { name: `File: ${name}, root/${name}` })
+      const destination = `/tree/${encodeURIComponent(`root/${encodeURIComponent(name)}`)}?${new URLSearchParams({ q: name })}`
+      await expect(result).toHaveAttribute('href', destination)
+      await expect(within(result).getByText(`root/${name}`)).toBeVisible()
+      await userEvent.click(result)
+      await expect(canvas.getByLabelText('Current location')).toHaveTextContent(destination)
+      await expect(input).toHaveValue(name)
+      await expect(canvas.getByRole('region', { name: 'File details' }))
+        .toHaveTextContent(`root/${name}`)
+    }
+  },
+}
+
+export const DuplicateSearchNames: Story = {
+  parameters: { initialPath: '/tree?q=button' },
+  args: {
+    items: addItemIds([{
+      name: 'root',
+      type: 'folder',
+      children: ['src', 'tests'].map((name) => ({
+        name,
+        type: 'folder',
+        children: [{ name: 'Button.tsx', type: 'file', size: 512 }],
+      })),
+    }]),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const search = within(canvas.getByRole('region', { name: 'Search' }))
+    await expect(search.getAllByRole('link')).toHaveLength(2)
+    for (const parent of ['src', 'tests']) {
+      const path = `root/${parent}/Button.tsx`
+      const link = search.getByRole('link', { name: `File: Button.tsx, ${path}` })
+      link.focus()
+      await userEvent.keyboard('{Enter}')
+      await expect(canvas.getByRole('region', { name: 'File details' })).toHaveTextContent(path)
+      await expect(canvas.getByLabelText('Current location'))
+        .toHaveTextContent(`/tree/${encodeURIComponent(path)}?q=button`)
+    }
   },
 }

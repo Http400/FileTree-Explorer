@@ -27,22 +27,50 @@
 .app-explorer {
   display: grid;
   grid-template-columns: minmax(220px, 1fr) minmax(0, 1.5fr);
+  grid-template-areas:
+    "tree details"
+    "tree search";
   gap: 24px;
   align-items: start;
 }
 
 .app-tree,
-.app-details {
+.app-details,
+.app-search {
   min-width: 0;
 }
 
 .app-tree {
+  grid-area: tree;
   overflow-x: auto;
+}
+
+.app-details {
+  grid-area: details;
+}
+
+.app-search {
+  grid-area: search;
+}
+
+@media (min-width: 1200px) {
+  .app:has(.app-explorer) {
+    max-width: 1280px;
+  }
+
+  .app-explorer {
+    grid-template-columns: minmax(220px, 1fr) minmax(0, 1.4fr) minmax(0, 1.4fr);
+    grid-template-areas: "tree details search";
+  }
 }
 
 @media (max-width: 640px) {
   .app-explorer {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "tree"
+      "details"
+      "search";
   }
 }
 
