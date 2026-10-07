@@ -12,20 +12,41 @@ npm run dev
 ## App flow
 
 At `/`, paste a file-tree JSON object or use **Upload JSON file**, then click
-**Validate JSON**. Valid input opens `/tree`, where the submitted structure is
-rendered with its root expanded. Expand nested folders to explore their contents.
+**Validate JSON**. Valid input opens `/tree`, with the root folder selected and
+expanded and its details displayed beside the tree. On small screens, details
+appear below the tree. Select a file or folder label to see its details; use the
+expansion icon to expand or collapse without changing selection.
+Keyboard users can navigate with arrow keys and select with Space. Enter toggles
+expandable folders or selects a leaf, following MUI's tree keyboard behavior.
 Invalid input stays on `/` with an error; typing or uploading alone does not
 navigate.
+
+Tree selections and folder child links share the same node URLs. Back/Forward
+updates the details and selection, revealing the selected node's ancestors while
+preserving other expansion choices. Expanding or collapsing alone does not add
+history entries. File details show the original readable path from the root.
+
+The root URL is `/tree`. Other URLs encode the complete item ID as one segment,
+for example `/tree/root%2Fsrc%2Findex.ts`. This is separate from the ID's own
+per-name encoding: a file named `a/b` has ID `root/a%2Fb` and URL
+`/tree/root%2Fa%252Fb`, distinct from nested `a` and `b`.
+`treeNavigation` reads the raw pathname and decodes its suffix once because
+React Router's decoded parameters can collapse those distinct IDs.
+
+An unknown node or malformed node URL keeps the tree visible and displays an
+error with **Back to root folder**. Selecting a valid tree item also recovers.
 
 Use **Enter another JSON** to return to a blank input and submit a different
 tree. The latest validated tree is held only in React memory: it survives
 Back/Forward navigation while the app is mounted, but not a page refresh or a new
-tab. Opening or refreshing `/tree` without that state redirects to `/`. Unknown
-paths also redirect to `/`. No tree data is stored in the URL, browser storage,
-or on a server.
+tab. Opening or refreshing `/tree` or a node-detail URL without that state
+redirects to `/`. Paths outside the explorer also redirect to `/`. URLs contain
+only the selected node ID, not a saved tree; no tree is stored in browser storage
+or on a server. Submitting a new tree resets selection and expansion to its root.
 
 Production hosting must serve `index.html` as the fallback for client-side
-routes such as `/tree`; otherwise a direct visit may produce a server-side 404.
+routes such as `/tree` and `/tree/root%2Fsrc`; otherwise a direct visit may
+produce a server-side 404.
 
 ## Storybook
 
@@ -47,7 +68,8 @@ Open the **Components** stories to explore individual components. The
 **Components/FileTreeInput** stories include self-running interaction checks
 for JSON validation and uploads. **Components/FileDetails** and
 **Components/FolderDetails** cover metadata, prop updates, empty folders, and
-child-link navigation.
+child-link navigation. **Components/TreeExplorer** exercises the integrated
+layout, routed selection, history, keyboard navigation, expansion, and errors.
 
 `npm run build-storybook` compiles the stories but does not execute their
 interaction checks; open each story in a browser to run its `play` function.
@@ -167,9 +189,10 @@ self-running interaction checks, including uploads and read failures.
 
 ## File and folder details
 
-`FileDetails` and `FolderDetails` are standalone, prop-driven MUI components.
-They are not yet displayed on `/tree`: the caller owns selection, node lookup,
-and destination routes. Neither component modifies the tree or stores selection.
+`FileDetails` and `FolderDetails` are reusable, prop-driven MUI components.
+`App` displays them through `TreeExplorer` at `/tree` and its detail URLs.
+The explorer owns node lookup, URL-driven selection, and expansion; the details
+components themselves do not modify the tree or store selection.
 
 `FileDetails` requires a `file` (the file variant of `FileTreeNode`) and a
 readable `fullPath` including the root name. Files enriched by `addItemIds`
@@ -198,7 +221,8 @@ Omitted or empty children display `0`, `0 B`, and **This folder is empty.**
 Folder details must be rendered inside a React Router context, such as the app's
 existing `BrowserRouter`. File details do not need a router. `getChildTo` owns
 URL construction; the component forwards its result to a React Router `Link`
-without encoding or rewriting it. The caller must implement matching routes.
+without encoding or rewriting it. `TreeExplorer` supplies the app's destinations;
+other consumers must implement their own matching routes.
 
 ```tsx
 import { FolderDetails, type FolderDetailsProps } from './src/components/FolderDetails/FolderDetails'
@@ -252,4 +276,10 @@ Run the size formatter and folder-total tests together:
 
 ```bash
 npm test -- src/utils/formatBytes.test.ts src/components/FolderDetails/getFolderSize.test.ts
+```
+
+Run routed node-lookup and URL-encoding tests with the ID helper tests:
+
+```bash
+npm test -- src/components/TreeExplorer/treeNavigation.test.ts src/components/FileTree/addItemIds.test.ts
 ```

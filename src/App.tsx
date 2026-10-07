@@ -1,12 +1,10 @@
 import { useMemo, useState } from 'react'
-import { Link, Navigate, Route, Routes, useNavigate } from 'react-router'
-import { FileTree } from './components/FileTree/FileTree'
-import { addItemIds, type FileTreeItem } from './components/FileTree/addItemIds'
+import { Navigate, Route, Routes, useNavigate } from 'react-router'
+import { addItemIds } from './components/FileTree/addItemIds'
 import { FileTreeInput } from './components/FileTreeInput/FileTreeInput'
 import type { FileTreeRoot } from './components/FileTreeInput/parseFileTreeJson'
+import { TreeExplorer } from './components/TreeExplorer/TreeExplorer'
 import './App.css'
-
-const getItemLabel = (item: FileTreeItem) => item.name
 
 function App() {
   const [root, setRoot] = useState<FileTreeRoot | null>(null)
@@ -35,20 +33,9 @@ function App() {
           }
         />
         <Route
-          path="/tree"
+          path="/tree/*"
           element={items ? (
-            <section className="app-page" aria-labelledby="tree-heading">
-              <h2 id="tree-heading">Your file tree</h2>
-              <div className="app-tree">
-                <FileTree
-                  items={items}
-                  getItemLabel={getItemLabel}
-                  defaultExpandedItems={[items[0].id]}
-                  aria-label="Project files"
-                />
-              </div>
-              <Link className="app-link" to="/">Enter another JSON</Link>
-            </section>
+            <TreeExplorer items={items} />
           ) : (
             <Navigate to="/" replace />
           )}
