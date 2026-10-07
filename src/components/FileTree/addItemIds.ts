@@ -19,6 +19,15 @@ export type FileTreeItem =
       children?: FileTreeItem[]
     })
 
+export class DuplicateItemNameError extends Error {
+  constructor(itemName: string, parentId?: string) {
+    const parent =
+      parentId === undefined ? 'the top level' : JSON.stringify(parentId)
+    super(`Duplicate item name ${JSON.stringify(itemName)} under ${parent}.`)
+    this.name = 'DuplicateItemNameError'
+  }
+}
+
 export function addItemIds(nodes: readonly FileTreeNode[]): FileTreeItem[] {
   function visit(
     siblings: readonly FileTreeNode[],
@@ -28,11 +37,7 @@ export function addItemIds(nodes: readonly FileTreeNode[]): FileTreeItem[] {
 
     return siblings.map((node) => {
       if (names.has(node.name)) {
-        const parent =
-          parentId === undefined ? 'the top level' : JSON.stringify(parentId)
-        throw new Error(
-          `Duplicate item name ${JSON.stringify(node.name)} under ${parent}.`,
-        )
+        throw new DuplicateItemNameError(node.name, parentId)
       }
       names.add(node.name)
 

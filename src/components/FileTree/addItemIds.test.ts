@@ -1,5 +1,10 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
-import { addItemIds, type FileTreeItem, type FileTreeNode } from './addItemIds'
+import {
+  addItemIds,
+  DuplicateItemNameError,
+  type FileTreeItem,
+  type FileTreeNode,
+} from './addItemIds'
 
 const root: FileTreeNode = {
   name: 'root',
@@ -133,6 +138,7 @@ describe('addItemIds', () => {
   })
 
   it('rejects duplicate top-level names with their name and context', () => {
+    expect(() => addItemIds([root, structuredClone(root)])).toThrow(DuplicateItemNameError)
     expect(() => addItemIds([root, structuredClone(root)])).toThrow(
       'Duplicate item name "root" under the top level.',
     )

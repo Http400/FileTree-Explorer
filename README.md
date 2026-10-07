@@ -92,6 +92,51 @@ checkbox multi-selection, disabled-item, empty-tree, and controlled
 selection/expansion examples. The wrapper accepts the
 [RichTreeView API](https://mui.com/x/api/tree-view/rich-tree-view/) directly.
 
+## JSON input
+
+`FileTreeInput` provides an editable textarea, **Upload JSON file**, and
+**Validate JSON** controls. Files are read locally into the textarea with their
+original formatting; nothing is uploaded to a server.
+
+```tsx
+import { useState } from 'react'
+import { FileTreeInput } from './src/components/FileTreeInput/FileTreeInput'
+import type { FileTreeRoot } from './src/components/FileTreeInput/parseFileTreeJson'
+
+export function ImportTree() {
+  const [root, setRoot] = useState<FileTreeRoot | null>(null)
+
+  return (
+    <>
+      <FileTreeInput onValid={setRoot} />
+      {root && <p>Validated root: {root.name}</p>}
+    </>
+  )
+}
+```
+
+Both props are optional: `initialValue` supplies the initial text only, and
+`onValid` receives the validated folder root after **Validate JSON** is clicked.
+Typing or uploading does not validate or call the callback. No IDs are added to
+the returned data, and additional metadata is preserved. The component does not
+navigate, render a tree, or persist the draft.
+
+Validation requires one folder root with nonblank Unicode names and node types
+`file` or `folder`. Files require a nonnegative safe-integer `size` in bytes and
+cannot have children. Folder `children` must be an array or omitted. Duplicate
+sibling names are rejected using the same check as `addItemIds`. Schema errors
+identify the affected field, for example `$.children[0].size`.
+
+Uploaded text remains editable, even if it is invalid JSON. Controls are disabled
+while reading; read failures preserve the previous draft and show an error.
+Editing or starting another upload clears previous validation feedback. The
+`.json` file-picker filter is a hint; contents are checked on explicit validation.
+There is no explicit file-size or depth cap, so very large/deep inputs remain
+subject to browser memory, responsiveness, and recursion limits.
+
+See **Components/FileTreeInput** in Storybook for the input states and
+self-running interaction checks, including uploads and read failures.
+
 ## Tests
 
 Run the Vitest unit tests:
@@ -104,4 +149,10 @@ Run only the ID helper's tests:
 
 ```bash
 npm test -- src/components/FileTree/addItemIds.test.ts
+```
+
+Run the JSON parser and ID helper tests together:
+
+```bash
+npm test -- src/components/FileTreeInput/parseFileTreeJson.test.ts src/components/FileTree/addItemIds.test.ts
 ```
