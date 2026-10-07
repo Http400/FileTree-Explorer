@@ -9,6 +9,24 @@ npm install
 npm run dev
 ```
 
+## App flow
+
+At `/`, paste a file-tree JSON object or use **Upload JSON file**, then click
+**Validate JSON**. Valid input opens `/tree`, where the submitted structure is
+rendered with its root expanded. Expand nested folders to explore their contents.
+Invalid input stays on `/` with an error; typing or uploading alone does not
+navigate.
+
+Use **Enter another JSON** to return to a blank input and submit a different
+tree. The latest validated tree is held only in React memory: it survives
+Back/Forward navigation while the app is mounted, but not a page refresh or a new
+tab. Opening or refreshing `/tree` without that state redirects to `/`. Unknown
+paths also redirect to `/`. No tree data is stored in the URL, browser storage,
+or on a server.
+
+Production hosting must serve `index.html` as the fallback for client-side
+routes such as `/tree`; otherwise a direct visit may produce a server-side 404.
+
 ## Storybook
 
 Run the component workshop locally:
@@ -24,6 +42,13 @@ Create a static Storybook bundle:
 ```bash
 npm run build-storybook
 ```
+
+Open the **Components** stories to explore individual components. The
+**Components/FileTreeInput** stories include self-running interaction checks
+for JSON validation and uploads.
+
+`npm run build-storybook` compiles the stories but does not execute their
+interaction checks; open each story in a browser to run its `play` function.
 
 ## FileTree
 
@@ -119,7 +144,8 @@ Both props are optional: `initialValue` supplies the initial text only, and
 `onValid` receives the validated folder root after **Validate JSON** is clicked.
 Typing or uploading does not validate or call the callback. No IDs are added to
 the returned data, and additional metadata is preserved. The component does not
-navigate, render a tree, or persist the draft.
+navigate, render a tree, or persist the draft. `App` connects its `onValid`
+callback to the in-memory tree state and route navigation.
 
 Validation requires one folder root with nonblank Unicode names and node types
 `file` or `folder`. Files require a nonnegative safe-integer `size` in bytes and
@@ -139,7 +165,8 @@ self-running interaction checks, including uploads and read failures.
 
 ## Tests
 
-Run the Vitest unit tests:
+Run the Vitest unit tests (Storybook interaction checks run separately in the
+browser):
 
 ```bash
 npm test
