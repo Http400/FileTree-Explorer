@@ -1,39 +1,34 @@
 import { useState } from 'react'
 import type { Meta, StoryObj } from '@storybook/react-vite'
-import type { TreeViewDefaultItemModelProperties as FileItem } from '@mui/x-tree-view/models'
 import { FileTree } from './FileTree'
+import { addItemIds, type FileTreeItem, type FileTreeNode } from './addItemIds'
 
-const items: FileItem[] = [
-  {
-    id: 'src',
-    label: 'src',
-    children: [
-      {
-        id: 'src/components',
-        label: 'components',
-        children: [
-          {
-            id: 'src/components/FileTree.tsx',
-            label: 'FileTree.tsx',
-          },
-        ],
-      },
-      { id: 'src/App.tsx', label: 'App.tsx' },
-      { id: 'src/main.tsx', label: 'main.tsx' },
-    ],
-  },
-  {
-    id: 'public',
-    label: 'public',
-    children: [{ id: 'public/favicon.svg', label: 'favicon.svg' }],
-  },
-  { id: 'package.json', label: 'package.json' },
-  { id: 'README.md', label: 'README.md' },
-]
+const root: FileTreeNode = {
+  name: 'root',
+  type: 'folder',
+  children: [
+    {
+      name: 'src',
+      type: 'folder',
+      children: [
+        { name: 'index.ts', type: 'file', size: 1024 },
+        {
+          name: 'components',
+          type: 'folder',
+          children: [{ name: 'Button.tsx', type: 'file', size: 512 }],
+        },
+      ],
+    },
+    { name: 'package.json', type: 'file', size: 300 },
+  ],
+}
+
+const items = addItemIds([root])
+const getItemLabel = (item: FileTreeItem) => item.name
 
 const meta = {
   title: 'Components/FileTree',
-  component: FileTree<FileItem>,
+  component: FileTree<FileTreeItem>,
   decorators: [
     (Story) => (
       <div style={{ width: 360, maxWidth: '100%', textAlign: 'left' }}>
@@ -43,9 +38,10 @@ const meta = {
   ],
   args: {
     items,
+    getItemLabel,
     'aria-label': 'Project files',
   },
-} satisfies Meta<typeof FileTree<FileItem>>
+} satisfies Meta<typeof FileTree<FileTreeItem>>
 
 export default meta
 
@@ -55,24 +51,24 @@ export const Default: Story = {}
 
 export const InitiallyExpanded: Story = {
   args: {
-    defaultExpandedItems: ['src', 'src/components', 'public'],
+    defaultExpandedItems: ['root', 'root/src', 'root/src/components'],
   },
 }
 
-export const CheckboxMultiSelection: StoryObj<typeof FileTree<FileItem, true>> = {
+export const CheckboxMultiSelection: StoryObj<typeof FileTree<FileTreeItem, true>> = {
   args: {
     ...meta.args,
     multiSelect: true,
     checkboxSelection: true,
-    defaultExpandedItems: ['src'],
-    defaultSelectedItems: ['src/App.tsx', 'README.md'],
+    defaultExpandedItems: ['root', 'root/src', 'root/src/components'],
+    defaultSelectedItems: ['root/src/index.ts', 'root/package.json'],
   },
 }
 
 export const DisabledItems: Story = {
   args: {
-    defaultExpandedItems: ['src'],
-    isItemDisabled: (item) => item.id === 'src/main.tsx',
+    defaultExpandedItems: ['root', 'root/src'],
+    isItemDisabled: (item) => item.id === 'root/src/index.ts',
   },
 }
 
@@ -84,8 +80,8 @@ export const EmptyTree: Story = {
 
 export const ControlledSelectionAndExpansion: Story = {
   render: function ControlledFileTree(args) {
-    const [selectedItems, setSelectedItems] = useState<string | null>('src/App.tsx')
-    const [expandedItems, setExpandedItems] = useState<string[]>(['src'])
+    const [selectedItems, setSelectedItems] = useState<string | null>('root/src/index.ts')
+    const [expandedItems, setExpandedItems] = useState<string[]>(['root', 'root/src'])
 
     return (
       <FileTree
