@@ -12,6 +12,49 @@ npm install
 npm run dev
 ```
 
+## With more time
+
+The next priorities would be:
+
+- **Large-tree handling:** profile wide and deeply nested trees, establish
+  practical input safeguards, and optimize processing and rendering where
+  measurements justify it. Potential approaches include virtualized results,
+  indexed node lookup, and moving expensive work off the main thread.
+- **Browser and accessibility coverage:** run the existing Storybook interaction
+  checks in CI and expand real-browser, keyboard, and accessibility coverage,
+  complementing the current unit and deployment checks.
+- **Saved-tree controls:** add JSON export and an explicit clear-saved-tree
+  action, with clear feedback about storage availability, while keeping data
+  browser-local.
+- **HTTPS delivery:** serve the deployed app over HTTPS and provide a way to
+  transfer saved trees to the new origin; existing localStorage data would not
+  migrate automatically.
+
+## Known limitations
+
+- **Read-only JSON model:** the app explores one supplied folder-root tree at a
+  time. It does not browse the actual filesystem, display file contents, or
+  provide in-app tree editing.
+- **Large or deeply nested inputs:** there is no explicit file-size, node-count,
+  or depth cap. Validation and ID generation are recursive, search traverses the
+  tree, and every search match is rendered. Large inputs can reduce
+  responsiveness or exceed browser memory and recursion limits; no measured
+  maximum is claimed.
+- **Browser-local state:** only the latest validated tree is saved per origin
+  and browser profile, and storage can be unavailable or full. URLs contain the
+  selected node and search query, not the tree data. Draft input and expansion
+  choices are not saved, and open tabs do not synchronize live. See
+  [App flow](#app-flow) for persistence and recovery behavior.
+- **Name-only search:** matching is a case-insensitive substring search on names,
+  not full paths or file contents. See [Name search](#name-search).
+- **Browser-check automation:** Storybook interaction checks exist, but
+  `npm test`, `npm run build-storybook`, and the current CI workflow do not
+  execute them. See [Storybook](#storybook) for running them in a browser.
+- **HTTP deployment:** the configured public deployment uses plain HTTP, so app
+  delivery is neither encrypted nor authenticated. Processing JSON locally does
+  not protect the JavaScript delivered to visitors. See
+  [VPS deployment](#vps-deployment).
+
 ## VPS deployment
 
 The deployment target is **http://145.239.83.11:8080**. A single Nginx container
