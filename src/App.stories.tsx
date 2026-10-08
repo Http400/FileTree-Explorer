@@ -54,6 +54,20 @@ async function enterJson(canvas: ReturnType<typeof within>, text: string) {
   await userEvent.paste(text)
 }
 
+async function expectNavbar(canvas: ReturnType<typeof within>) {
+  const banner = canvas.getByRole('banner')
+  const navigation = within(banner).getByRole('navigation', { name: 'Main navigation' })
+  const brand = within(navigation).getByRole('link', { name: 'FileTree Explorer' })
+  await expect(banner).toBeVisible()
+  await expect(brand).toHaveAttribute('href', '/')
+  await expect(canvas.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+  await expect(within(brand).getByRole('heading', { level: 1, name: 'FileTree Explorer' }))
+    .toBeVisible()
+  await expect(brand.querySelector('svg')).toHaveAttribute('aria-hidden', 'true')
+  await expect(brand.querySelector('svg')).toHaveAttribute('focusable', 'false')
+  return brand
+}
+
 const meta = {
   title: 'App/Persistence',
   component: App,
@@ -105,12 +119,14 @@ type Story = StoryObj<typeof meta>
 export const SaveAndRestore: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
+    await expectNavbar(canvas)
     await enterJson(canvas, json)
     await expect(window.localStorage.getItem(FILE_TREE_STORAGE_KEY)).toBeNull()
     await expect(saveAttempts).not.toHaveBeenCalled()
 
     await userEvent.click(canvas.getByRole('button', { name: 'Validate JSON' }))
     await expect(canvas.getByRole('tree')).toBeInTheDocument()
+    await expectNavbar(canvas)
     await expect(canvas.getByLabelText('Current location')).toHaveTextContent(/^\/tree$/)
     await expect(window.localStorage.getItem(FILE_TREE_STORAGE_KEY)).toBe(JSON.stringify(source))
     await expect(saveAttempts).toHaveBeenCalledTimes(1)
@@ -149,6 +165,7 @@ export const RestoreNestedUrl: Story = {
   parameters: { initialPath: nestedPath, initialJson: json },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
+    await expectNavbar(canvas)
     await expect(canvas.getByLabelText('Current location')).toHaveTextContent(nestedPath)
     await expect(canvas.getByRole('region', { name: 'File details' }))
       .toHaveTextContent('root/a/b/index.ts')
@@ -159,6 +176,44 @@ export const RestoreNestedUrl: Story = {
     await expect(window.localStorage.getItem(FILE_TREE_STORAGE_KEY)).toBe(json)
     await expect(saveAttempts).not.toHaveBeenCalled()
   },
+}
+
+export const NavbarHomeNavigation: Story = {
+  parameters: { initialPath: `${nestedPath}?q=index`, initialJson: json },
+  play: async ({ canvasElement, parameters }) => {
+    const canvas = within(canvasElement)
+    const brand = await expectNavbar(canvas)
+    const main = canvas.getByRole('main')
+    const navigation = canvas.getByRole('navigation', { name: 'Main navigation' })
+    const { width, x } = main.getBoundingClientRect()
+    await expect(width).toBeGreaterThan(0)
+    await expect(navigation.getBoundingClientRect()).toMatchObject({ width, x })
+    await expect(canvas.getByLabelText('Current location')).toHaveTextContent(`${nestedPath}?q=index`)
+    await expect(canvas.getByRole('region', { name: 'File details' }))
+      .toHaveTextContent('root/a/b/index.ts')
+
+    if (parameters.keyboardNavigation) {
+      canvas.getByRole('button', { name: 'Remount app' }).focus()
+      await userEvent.tab()
+      await expect(brand).toHaveFocus()
+      await userEvent.keyboard('{Enter}')
+    } else {
+      await userEvent.click(brand)
+    }
+
+    await expect(canvas.getByLabelText('Current location')).toHaveTextContent(/^\/$/)
+    await expect(canvas.getByRole('textbox', { name: 'File tree JSON' })).toHaveValue('')
+    await expectNavbar(canvas)
+    await expect(main.getBoundingClientRect()).toMatchObject({ width, x })
+    await expect(navigation.getBoundingClientRect()).toMatchObject({ width, x })
+    await expect(window.localStorage.getItem(FILE_TREE_STORAGE_KEY)).toBe(json)
+    await expect(saveAttempts).not.toHaveBeenCalled()
+  },
+}
+
+export const NavbarKeyboardNavigation: Story = {
+  ...NavbarHomeNavigation,
+  parameters: { ...NavbarHomeNavigation.parameters, keyboardNavigation: true },
 }
 
 export const ReplaceTree: Story = {
@@ -217,6 +272,7 @@ export const CorruptSavedTree: Story = {
   play: async ({ canvasElement, parameters }) => {
     const canvas = within(canvasElement)
     await expect(await canvas.findByRole('textbox', { name: 'File tree JSON' })).toHaveValue('')
+    await expectNavbar(canvas)
     await expect(canvas.getByLabelText('Current location')).toHaveTextContent(/^\/$/)
     await expect(canvas.getByRole('alert')).toHaveTextContent('Unable to load the saved tree:')
     await expect(window.localStorage.getItem(FILE_TREE_STORAGE_KEY)).toBe(parameters.initialJson)
@@ -243,11 +299,13 @@ export const UnavailableStorage: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await expect(await canvas.findByRole('textbox', { name: 'File tree JSON' })).toHaveValue('')
+    await expectNavbar(canvas)
     await expect(canvas.getByRole('alert'))
       .toHaveTextContent('Unable to load the saved tree: Storage access denied.')
     await enterJson(canvas, json)
     await userEvent.click(canvas.getByRole('button', { name: 'Validate JSON' }))
     await expect(canvas.getByRole('tree')).toBeInTheDocument()
+    await expectNavbar(canvas)
     await expect(canvas.getByRole('alert')).toHaveTextContent('Your tree is open but could not be saved:')
     await userEvent.click(canvas.getByRole('link', { name: 'a/b' }))
     await userEvent.click(canvas.getByRole('link', { name: 'index.ts' }))

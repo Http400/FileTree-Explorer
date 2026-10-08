@@ -4,6 +4,7 @@ import Alert from '@mui/material/Alert'
 import { addItemIds } from './components/FileTree/addItemIds'
 import { FileTreeInput } from './components/FileTreeInput/FileTreeInput'
 import type { FileTreeRoot } from './components/FileTreeInput/parseFileTreeJson'
+import { Navbar } from './components/Navbar/Navbar'
 import { TreeExplorer } from './components/TreeExplorer/TreeExplorer'
 import { loadFileTree, saveFileTree } from './utils/fileTreeStorage'
 import './App.css'
@@ -33,35 +34,37 @@ function App() {
   }
 
   return (
-    <main className="app">
-      <h1>FileTree Explorer</h1>
-      {storageWarning && (
-        <Alert severity="warning" sx={{ mb: 3 }}>{storageWarning}</Alert>
-      )}
-      <Routes>
-        <Route
-          path="/"
-          element={
-            <section className="app-page" aria-labelledby="input-heading">
-              <h2 id="input-heading">Enter JSON</h2>
-              <p>
-                Paste or upload a JSON file, then click Validate JSON to explore its file tree.
-              </p>
-              <FileTreeInput onValid={handleValid} />
-            </section>
-          }
-        />
-        <Route
-          path="/tree/*"
-          element={items ? (
-            <TreeExplorer items={items} />
-          ) : (
-            <Navigate to="/" replace />
-          )}
-        />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </main>
+    <div className="app-shell">
+      <Navbar />
+      <main className="app">
+        {storageWarning && (
+          <Alert severity="warning" sx={{ mb: 3 }}>{storageWarning}</Alert>
+        )}
+        <Routes>
+          <Route
+            path="/"
+            element={
+              <section className="app-page" aria-labelledby="input-heading">
+                <h2 id="input-heading">Enter JSON</h2>
+                <p>
+                  Paste or upload a JSON file, then click Validate JSON to explore its file tree.
+                </p>
+                <FileTreeInput onValid={handleValid} />
+              </section>
+            }
+          />
+          <Route
+            path="/tree/*"
+            element={items ? (
+              <TreeExplorer items={items} />
+            ) : (
+              <Navigate to="/" replace />
+            )}
+          />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </main>
+    </div>
   )
 }
 

@@ -2,6 +2,9 @@
 
 A React and TypeScript file-tree explorer built with Vite.
 
+The top navbar's logo and **FileTree Explorer** name link back to the JSON input
+page without clearing your saved tree.
+
 ## Development
 
 ```bash

@@ -1,16 +1,15 @@
-.app {
+.app,
+.app-navbar-content {
   box-sizing: border-box;
   width: 100%;
   max-width: 960px;
   margin-inline: auto;
-  padding: clamp(16px, 4vw, 40px);
+  padding-inline: clamp(16px, 4vw, 40px);
   text-align: left;
 }
 
-.app h1 {
-  margin: 0 0 32px;
-  font-size: clamp(28px, 5vw, 40px);
-  line-height: 1.2;
+.app {
+  padding-block: clamp(16px, 4vw, 40px);
 }
 
 .app-page {
@@ -54,7 +53,8 @@
 }
 
 @media (min-width: 1200px) {
-  .app:has(.app-explorer) {
+  .app,
+  .app-navbar-content {
     max-width: 1280px;
   }
 
