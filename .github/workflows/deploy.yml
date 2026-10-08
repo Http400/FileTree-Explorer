@@ -1,0 +1,216 @@
+name: CI and deploy
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/http400/filetree-explorer
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run lint && npm test && npm run build
+      - name: Check deployment scripts
+        run: |
+          for script in scripts/*.sh; do bash -n "$script"; done
+          shellcheck scripts/*.sh
+          bash scripts/deploy.test.sh
+      - uses: docker/setup-buildx-action@v4
+      - name: Build production image for checks
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          tags: filetree-ci:${{ github.sha }}
+          build-args: APP_SHA=${{ github.sha }}
+          cache-from: type=gha,scope=filetree
+          cache-to: type=gha,mode=max,scope=filetree
+      - name: Check Nginx, Compose, and HTTP behavior
+        run: |
+          set -euo pipefail
+          export APP_IMAGE="filetree-ci:$GITHUB_SHA"
+          docker compose -f docker-compose.prod.yml config --quiet
+          docker run --rm --entrypoint nginx "$APP_IMAGE" -t
+          trap 'docker rm -f filetree-ci' EXIT
+          docker run -d --name filetree-ci -p 127.0.0.1::80 "$APP_IMAGE"
+          address=$(docker port filetree-ci 80/tcp)
+          bash scripts/smoke-test.sh "http://$address" "$GITHUB_SHA"
+
+  publish:
+    needs: checks
+    if: github.ref == 'refs/heads/master' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish both architectures
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ env.IMAGE }}:${{ github.sha }}
+          labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          build-args: APP_SHA=${{ github.sha }}
+          cache-from: type=gha,scope=filetree
+          cache-to: type=gha,mode=max,scope=filetree
+
+  deploy:
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: http://145.239.83.11:8080
+    concurrency:
+      group: filetree-production
+      cancel-in-progress: false
+    env:
+      PROJECT_PATH: /home/ubuntu/filetree-explorer
+      APP_PORT: '8080'
+      PUBLIC_URL: http://145.239.83.11:8080
+      RELEASE_ID: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+      IMAGE_DIGEST: ${{ needs.publish.outputs.digest }}
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Skip stale queued releases
+        id: head
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          head=$(gh api "repos/$GITHUB_REPOSITORY/commits/master" --jq .sha)
+          if [[ "$head" == "$GITHUB_SHA" ]]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping stale release $GITHUB_SHA; master is $head."
+          fi
+      - name: Verify public image and architectures
+        if: steps.head.outputs.deploy == 'true'
+        run: |
+          set -euo pipefail
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          anonymous=$(mktemp -d)
+          trap 'rmdir "$anonymous"' EXIT
+          if ! manifest=$(DOCKER_CONFIG="$anonymous" docker manifest inspect "$IMAGE@$IMAGE_DIGEST"); then
+            echo "::error::Image is not anonymously accessible. Make the GHCR package public and rerun the failed job."
+            exit 1
+          fi
+          jq -e '[.manifests[].platform | "\(.os)/\(.architecture)"] |
+            index("linux/amd64") != null and index("linux/arm64") != null' <<< "$manifest"
+      - name: Configure pinned SSH connection
+        if: steps.head.outputs.deploy == 'true'
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          [[ "$VPS_HOST" =~ ^[a-zA-Z0-9.-]+$ ]] || { echo "::error::Set VPS_HOST"; exit 1; }
+          [[ "$VPS_USER" =~ ^[a-z_][a-z0-9_-]*$ ]] || { echo "::error::Set VPS_USER"; exit 1; }
+          [[ -n "$VPS_SSH_KEY" && -n "$VPS_KNOWN_HOSTS" ]] || { echo "::error::SSH key and verified known_hosts are required"; exit 1; }
+          SSH_DIR="$RUNNER_TEMP/filetree-ssh"
+          echo "SSH_DIR=$SSH_DIR" >> "$GITHUB_ENV"
+          umask 077
+          mkdir -p "$SSH_DIR"
+          printf '%s\n' "$VPS_SSH_KEY" > "$SSH_DIR/key"
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > "$SSH_DIR/known_hosts"
+          cat > "$SSH_DIR/config" <<EOF
+          Host filetree-vps
+            HostName $VPS_HOST
+            User $VPS_USER
+            IdentityFile $SSH_DIR/key
+            UserKnownHostsFile $SSH_DIR/known_hosts
+            StrictHostKeyChecking yes
+            BatchMode yes
+            ConnectTimeout 15
+            ServerAliveInterval 15
+            ServerAliveCountMax 3
+          EOF
+      - name: Stage an isolated release
+        id: stage
+        if: steps.head.outputs.deploy == 'true'
+        run: |
+          set -euo pipefail
+          ssh -F "$SSH_DIR/config" filetree-vps \
+            "set -eu; command -v flock; command -v curl; docker info >/dev/null; docker compose version; uname -m;
+             mkdir -p '$PROJECT_PATH/releases';
+             mkdir '$PROJECT_PATH/releases/$RELEASE_ID'"
+          release="$RUNNER_TEMP/filetree-release"
+          mkdir -p "$release"
+          printf 'APP_IMAGE=%s@%s\nAPP_PORT=%s\nAPP_SHA=%s\n' \
+            "$IMAGE" "$IMAGE_DIGEST" "$APP_PORT" "$GITHUB_SHA" > "$release/.env"
+          scp -F "$SSH_DIR/config" docker-compose.prod.yml scripts/deploy.sh "$release/.env" \
+            "filetree-vps:$PROJECT_PATH/releases/$RELEASE_ID/"
+      - name: Read the previous known-good revision
+        id: previous
+        if: steps.head.outputs.deploy == 'true'
+        run: |
+          sha=$(ssh -F "$SSH_DIR/config" filetree-vps \
+            "bash '$PROJECT_PATH/releases/$RELEASE_ID/deploy.sh' current '$PROJECT_PATH'")
+          [[ "$sha" == none || "$sha" =~ ^[0-9a-f]{40}$ ]]
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - name: Activate candidate and wait for health
+        id: activate
+        if: steps.head.outputs.deploy == 'true'
+        run: |
+          ssh -F "$SSH_DIR/config" filetree-vps \
+            "bash '$PROJECT_PATH/releases/$RELEASE_ID/deploy.sh' activate '$PROJECT_PATH' '$RELEASE_ID'"
+      - name: Check the public application and revision
+        id: smoke
+        if: steps.head.outputs.deploy == 'true'
+        run: bash scripts/smoke-test.sh "$PUBLIC_URL" "$GITHUB_SHA"
+      - name: Finalize the verified release
+        id: finalize
+        if: steps.head.outputs.deploy == 'true'
+        run: |
+          ssh -F "$SSH_DIR/config" filetree-vps \
+            "bash '$PROJECT_PATH/releases/$RELEASE_ID/deploy.sh' finalize '$PROJECT_PATH' '$RELEASE_ID'"
+      - name: Restore the previous release after failure
+        if: always() && (steps.activate.outcome == 'success' || steps.activate.outcome == 'failure') && steps.finalize.outcome != 'success'
+        env:
+          PREVIOUS_SHA: ${{ steps.previous.outputs.sha }}
+        run: |
+          set -euo pipefail
+          ssh -F "$SSH_DIR/config" filetree-vps \
+            "bash '$PROJECT_PATH/releases/$RELEASE_ID/deploy.sh' rollback '$PROJECT_PATH' '$RELEASE_ID'"
+          if [[ "$PREVIOUS_SHA" == none ]]; then
+            echo "::error::There is no previous release to restore. Inspect the failed first deployment."
+            exit 1
+          fi
+          bash scripts/smoke-test.sh "$PUBLIC_URL" "$PREVIOUS_SHA"
+          echo "::error::Deployment failed; the previous release has been verified."
+      - name: Remove temporary SSH and release files
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/filetree-ssh/key" "$RUNNER_TEMP/filetree-ssh/known_hosts" "$RUNNER_TEMP/filetree-ssh/config"
+          rm -f "$RUNNER_TEMP/filetree-release/.env"

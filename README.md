@@ -9,6 +9,171 @@ npm install
 npm run dev
 ```
 
+## VPS deployment
+
+The deployment target is **http://145.239.83.11:8080**. A single Nginx container
+serves the production Vite bundle through Docker Compose; no Node process,
+backend, database, domain, or certificate is required on the VPS. Instigi and
+its Caddy remain untouched. Only host TCP port 8080 is published.
+
+This is **plain HTTP**: delivery of the app is neither encrypted nor
+authenticated. JSON is processed and saved locally by the browser, not uploaded
+to the VPS, but HTTP does not protect the JavaScript delivered to visitors.
+Saved trees are scoped to this exact origin; data from localhost, another port,
+or a future HTTPS URL does not migrate automatically.
+
+### One-time VPS and GitHub setup
+
+1. Install Docker Engine and the Compose v2 plugin on Ubuntu. The SSH deployment
+   user needs Docker access (which is effectively root access), Bash, `curl`,
+   `flock` from `util-linux`, and write access to
+   `/home/ubuntu/filetree-explorer`. Verify `docker info`, `docker compose
+   version`, and `docker compose up --help` support `--wait` and `--wait-timeout`.
+   Check `uname -m` (`x86_64` or `aarch64`) and `df -h`; images support both
+   `linux/amd64` and `linux/arm64`.
+2. Check `sudo ss -ltnp 'sport = :8080'` and `docker ps` before deployment. If
+   another service owns 8080, do not stop it: resolve the conflict first. Create
+   `/home/ubuntu/filetree-explorer/releases` as the deployment user. Record
+   Instigi's existing container status/port mappings for comparison afterwards.
+3. Allow inbound TCP 8080 in the provider firewall and any Docker-aware host
+   firewall rules, without changing existing SSH/Instigi rules. Docker-published
+   ports can bypass ordinary UFW filtering; use the provider firewall or
+   appropriate Docker firewall rules for source restrictions.
+4. Install a dedicated deployment SSH public key in the user's `authorized_keys`.
+   Obtain the server's SSH host key through a trusted VPS console and verify its
+   fingerprint independently. Do not blindly trust a key scanned during a
+   deployment.
+5. In this repository, create the GitHub environment **production**, restrict it
+   to `master`, and add the secrets below. Secrets configured only in Instigi
+   are not automatically available here.
+
+| Secret | Value |
+| --- | --- |
+| `VPS_HOST` | `145.239.83.11` |
+| `VPS_USER` | The SSH user, normally `ubuntu` |
+| `VPS_SSH_KEY` | Dedicated SSH private key usable noninteractively by Actions |
+| `VPS_KNOWN_HOSTS` | Verified OpenSSH known-hosts entry for the exact `VPS_HOST` |
+
+For example, the public host-key file `/etc/ssh/ssh_host_ed25519_key.pub` can
+be inspected in the provider console. A known-hosts entry has the format
+`145.239.83.11 ssh-ed25519 <public-key-data>`. Never copy the server's private
+host key or commit deployment private keys.
+
+No OVH DNS credentials or VPS GHCR token are needed. The workflow uses its
+temporary `GITHUB_TOKEN` to publish images. On the **first publication**, GitHub
+may create `ghcr.io/http400/filetree-explorer` as a private package. Make the
+package public in its GitHub package settings, then **rerun failed jobs** if the
+anonymous-pull check blocked deployment. That check runs before touching the
+VPS. Ensure the repository has Actions access to the package if it already
+exists.
+
+### CI and release behavior
+
+`.github/workflows/deploy.yml` checks pull requests and pushes to `master`.
+Lint, unit tests, type-check/build, deployment regression checks, and real
+container HTTP checks must pass before publication. Storybook is not published,
+and its browser interaction checks are not claimed as part of CI.
+
+Pushes to `master` and **Actions > CI and deploy > Run workflow** on `master`
+publish both image architectures, tagged with the full commit SHA. Deployments
+use the immutable image digest, not a mutable tag. Manual runs on another
+branch cannot publish or deploy. Production deployments are serialized without
+cancelling an active rollout; stale queued revisions are skipped.
+
+Each release is staged under
+`/home/ubuntu/filetree-explorer/releases/<sha>-<run>-<attempt>`, containing its
+Compose manifest, deployment script, and generated `.env` with nonsecret image,
+port, and source-SHA metadata. The Compose project is always `filetree-explorer`.
+Pull/configuration failures leave the running release untouched. Compose waits
+for health, then the runner checks the public application, exact baked
+`/version.txt` revision, SPA deep links, and static assets. Only a verified
+release is finalized.
+
+A failed rollout or smoke check restores the previous manifest and cached image
+and verifies the previous public revision. The workflow stays failed even when
+recovery succeeds. A first deployment has no previous release: failed candidate
+resources are removed and the failure is reported. If rollback or SSH fails,
+state and diagnostics remain for manual recovery; recovery cannot be guaranteed
+during a VPS/network outage. A single-container replacement can briefly
+interrupt service.
+
+After the first successful run, open the public URL, import JSON, select a node,
+and refresh its deep link to verify localStorage restoration. Compare Instigi's
+container status/ports with the pre-deployment snapshot.
+
+### Status and recovery
+
+Run on the VPS, as the deployment user:
+
+```bash
+ROOT=/home/ubuntu/filetree-explorer
+RELEASE=$(cat "$ROOT/current")
+docker compose --project-name filetree-explorer \
+  --file "$ROOT/releases/$RELEASE/docker-compose.prod.yml" \
+  --env-file "$ROOT/releases/$RELEASE/.env" ps
+docker compose --project-name filetree-explorer \
+  --file "$ROOT/releases/$RELEASE/docker-compose.prod.yml" \
+  --env-file "$ROOT/releases/$RELEASE/.env" logs --tail 100
+```
+
+`current` is the last verified release, `previous` is its rollback target, and
+`pending` records an unverified replacement. If a job loses its connection,
+inspect `pending` and logs before starting another deployment. While pending,
+use that release's manifest for status/logs instead of `current`.
+
+To recover a pending release, or roll back a finalized release:
+
+```bash
+ROOT=/home/ubuntu/filetree-explorer
+if [ -f "$ROOT/pending" ]; then
+  CANDIDATE=$(cat "$ROOT/pending")
+else
+  CANDIDATE=$(cat "$ROOT/current")
+fi
+bash "$ROOT/releases/$CANDIDATE/deploy.sh" rollback "$ROOT" "$CANDIDATE"
+```
+
+Run recovery only when no Actions deployment is in progress; the script also
+locks individual state-changing operations. When no previous release exists,
+the script exits nonzero and explicitly reports that rollback was impossible.
+After restoring a release, use the checked-out repository on your workstation
+to run `bash scripts/smoke-test.sh http://145.239.83.11:8080 <restored-full-sha>`.
+Do not finalize a pending release manually without verifying it first.
+
+For a manual first deployment outside Actions, obtain the published SHA's
+manifest digest with `docker buildx imagetools inspect
+ghcr.io/http400/filetree-explorer:<full-sha>`. Copy this repository's Compose
+manifest and `scripts/deploy.sh` into a new
+`$ROOT/releases/<full-sha>-0-1` directory and create its `.env` on the VPS with
+`APP_IMAGE=ghcr.io/http400/filetree-explorer@sha256:<digest>`, `APP_PORT=8080`,
+and `APP_SHA=<full-sha>`. Call that script's `activate` action, run the external
+smoke check, then call `finalize` on success or `rollback` on failure.
+Use a new numeric run/attempt suffix for subsequent manual releases.
+
+Keep the current, previous, and pending release directories and their images.
+Remove only explicitly identified older FileTree releases/images when reclaiming
+space. Never use global Docker pruning, `down --volumes`, or cleanup targeting
+Instigi.
+
+### Local production-image check
+
+With Docker, Buildx, and Compose installed:
+
+```bash
+SHA=$(git rev-parse HEAD)
+docker build --build-arg APP_SHA="$SHA" -t filetree-explorer:local .
+APP_IMAGE=filetree-explorer:local APP_PORT=18080 \
+  docker compose -p filetree-explorer-local -f docker-compose.prod.yml up -d --wait
+bash scripts/smoke-test.sh http://localhost:18080 "$SHA"
+APP_IMAGE=filetree-explorer:local APP_PORT=18080 \
+  docker compose -p filetree-explorer-local -f docker-compose.prod.yml down
+bash scripts/deploy.test.sh
+```
+
+The configuration serves SPA routes without URL redirects, including encoded
+node names ending in `.js`. Only `/assets/` receives immutable caching; missing
+assets return 404, while HTML and revision metadata revalidate.
+
 ## App flow
 
 At `/`, paste a file-tree JSON object or use **Upload JSON file**, then click
