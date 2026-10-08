@@ -89,6 +89,10 @@ for health, then the runner checks the public application, exact baked
 `/version.txt` revision, SPA deep links, and static assets. Only a verified
 release is finalized.
 
+Image pulls use a temporary empty Docker credential configuration. This prevents
+an unrelated or expired GHCR login on the shared VPS from blocking public pulls;
+existing registry credentials and other applications remain unchanged.
+
 A failed rollout or smoke check restores the previous manifest and cached image
 and verifies the previous public revision. The workflow stays failed even when
 recovery succeeds. A first deployment has no previous release: failed candidate

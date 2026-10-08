@@ -22,7 +22,8 @@ candidate=${3:-}
 command -v flock >/dev/null || fail "flock (util-linux) is required"
 exec 9>"$root/.deploy.lock"
 flock -n 9 || fail "another deployment operation holds the lock"
-trap 'rm -f "$root/.state.$$"' EXIT
+anonymous=''
+trap 'rm -f "$root/.state.$$"; if [[ -n $anonymous ]]; then rmdir "$anonymous"; fi' EXIT
 
 read_state() {
   local name=$1 value
@@ -131,7 +132,9 @@ case "$action" in
     current=$(read_state current)
     [[ $current != "$candidate" ]] || fail "candidate is already current"
     compose "$candidate" config --quiet
-    compose "$candidate" pull
+    # Existing registry logins can reject even public images on a shared VPS.
+    anonymous=$(mktemp -d "$root/.registry.XXXXXX")
+    DOCKER_CONFIG=$anonymous compose "$candidate" pull
     write_state pending "$candidate"
     if ! compose "$candidate" up -d --no-build --pull never --wait --wait-timeout 90; then
       log "Candidate failed to become healthy."

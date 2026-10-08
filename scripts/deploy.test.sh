@@ -5,7 +5,10 @@ script_dir=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d)
 trap 'find "$work" -depth -delete' EXIT
 mkdir "$work/bin"
+mkdir "$work/existing-docker-config"
 export PATH="$work/bin:$PATH"
+export DOCKER_CONFIG="$work/existing-docker-config"
+export TEST_ORIGINAL_DOCKER_CONFIG=$DOCKER_CONFIG
 export TEST_LOG="$work/docker.log"
 export TEST_FAIL_STAGE='' TEST_FAIL_RELEASE='' TEST_LOCKED=''
 
@@ -20,6 +23,10 @@ set -euo pipefail
 [[ $4 == --file && $6 == --env-file ]]
 release=$(basename "$(dirname "$5")")
 shift 7
+if [[ $1 == pull ]]; then
+  [[ -d $DOCKER_CONFIG && $DOCKER_CONFIG != "$TEST_ORIGINAL_DOCKER_CONFIG" ]]
+  [[ ! -e $DOCKER_CONFIG/config.json ]]
+fi
 printf '%s %s\n' "$release" "$*" >> "$TEST_LOG"
 if [[ $1 == "$TEST_FAIL_STAGE" && ( $TEST_FAIL_RELEASE == all || $release == "$TEST_FAIL_RELEASE" ) ]]; then
   exit 1
@@ -191,4 +198,5 @@ TEST_HEALTH='<html>unrelated app</html>'
 expect_failure bash "$script_dir/smoke-test.sh" http://example.test "$new_sha"
 grep -q 'unexpected health response' "$work/output"
 
+[[ -z $(find "$work" -type d -name '.registry.*' -print) ]]
 echo "Deployment regression checks passed ($count scenarios)."
